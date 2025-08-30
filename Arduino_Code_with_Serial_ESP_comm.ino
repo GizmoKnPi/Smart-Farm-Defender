@@ -2,12 +2,11 @@
 
 VarSpeedServo servoX;  // Servo for horizontal movement
 VarSpeedServo servoY;  // Servo for vertical movement
-VarSpeedServo triggerServo;  // Servo for rubber band firing mechanism
+VarSpeedServo triggerServo;  // Servo for trigger sweep (0 to 90 degrees)
 
 // Define pins for laser, shot fired indication, and system control
 const int laserPin = 2;            // Pin for laser control
 const int shotFiredPin = 3;        // Pin for shot fired indication
-const int gunArmPin = 4;           // Pin for gun arm state (armed or unarmed)
 const int systemControlPin = 5;    // Pin to control system operation
 
 int lastAngleX = 90;  // Track the last servo angle to prevent unnecessary movement
@@ -22,8 +21,6 @@ const unsigned long shotInterval = 5000; // 5-second interval between shots
 
 bool shotAllowed = true;                // Flag to track if shooting is allowed
 
-int triggerServoPosition = 0;           // Track the trigger servo position
-
 void setup() {
   Serial.begin(9600);
   
@@ -35,7 +32,6 @@ void setup() {
   // Set up laser, shot fired, and system control pins as output/input
   pinMode(laserPin, OUTPUT);
   pinMode(shotFiredPin, OUTPUT);
-  pinMode(gunArmPin, INPUT);            // Gun arm state input
   pinMode(systemControlPin, INPUT_PULLUP);  // Pull-up to read HIGH/LOW state
 
   // Ensure all outputs start LOW
@@ -60,9 +56,6 @@ void loop() {
     return;  // Skip the rest of the loop when system control is LOW
   }
 
-  // Check if the gun is armed
-  bool gunArmed = digitalRead(gunArmPin) == HIGH;
-
   if (Serial.available()) {
     // Read the incoming data
     String input = Serial.readStringUntil('\n');
@@ -75,7 +68,7 @@ void loop() {
 
       // Limit angles to the servo range
       angleX = constrain(angleX, 35, 145);
-      angleY = constrain(angleY, 10, 110);
+      angleY = constrain(angleY, 0, 120);
 
       // Only move servos if the change is significant (to avoid shaking)
       if (abs(angleX - lastAngleX) > 5) {
@@ -88,11 +81,8 @@ void loop() {
       }
     }
 
-    // Check for shooting command and if the gun is armed
-    if (input == "shoot" && gunArmed && shotAllowed && !shotInProgress) {
-      // Add a small pre-fire delay for accuracy
-      delay(400);  // Adjust this delay if needed
-
+    // Check for shooting command and if enough time has passed since the last shot
+    if (input == "shoot" && shotAllowed && !shotInProgress) {
       // Trigger laser and indicate shot fired
       digitalWrite(laserPin, HIGH);      // Laser ON
       digitalWrite(shotFiredPin, HIGH);  // Shot fired ON
@@ -101,12 +91,8 @@ void loop() {
       shotStartTime = millis();
       shotInProgress = true;
 
-      // Move the trigger servo to fire the rubber band by incrementing position
-      triggerServoPosition += 45;   // Increment position by 50 degrees
-      if (triggerServoPosition > 180) {
-        triggerServoPosition = 0;   // Reset to 0 if it exceeds the range
-      }
-      triggerServo.write(triggerServoPosition, 200);  // Move trigger servo to new position
+      // Sweep the trigger servo from 0 to 90 degrees in 1.5 seconds
+      triggerServo.write(90, 200);   // Move trigger servo to 90 degrees with a smooth speed
 
       // Prevent further shots for the interval duration
       shotAllowed = false;
@@ -115,11 +101,14 @@ void loop() {
   }
 
   // Check if the shot duration has passed
-  if (shotInProgress && (millis() - shotStartTime >= shotDuration+1000)) {
+  if (shotInProgress && (millis() - shotStartTime >= shotDuration + 1000)) {
     // Turn off laser and reset shot fired pin
     digitalWrite(laserPin, LOW);       // Laser OFF
     digitalWrite(shotFiredPin, LOW);   // Shot fired OFF
     shotInProgress = false;
+
+    // Return the trigger servo to the 0-degree position
+    triggerServo.write(0, 200);  // Sweep back to 0 degrees with a smooth speed
   }
 
   // Allow shooting again after 5 seconds have passed
